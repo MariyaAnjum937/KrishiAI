@@ -45,7 +45,7 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from models.schemas import HealthResponse
-from routers import predict, fertilizer, history
+from routers import predict, fertilizer, history, chatbot
 from services.predictor import load_predictor, CLASS_NAMES
 
 # ── Logging ───────────────────────────────────────────────────────────────────
@@ -115,6 +115,7 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 app.include_router(predict.router)
 app.include_router(fertilizer.router)
 app.include_router(history.router)
+app.include_router(chatbot.router)
 
 
 # ── Global exception handler ──────────────────────────────────────────────────
