@@ -1,0 +1,28 @@
+# PlantCare AI — FastAPI Backend Dependencies
+# ============================================
+# Install with:  pip install -r requirements.txt
+
+# Web framework
+fastapi>=0.111.0
+uvicorn[standard]>=0.29.0
+
+# Data validation
+pydantic>=2.7.0
+
+# Image processing
+Pillow>=10.3.0
+
+# ML (install TensorFlow separately if GPU is needed)
+numpy>=1.26.0
+#tensorflow>=2.17.0        # or 
+tensorflow-cpu>=2.17.0 for CPU-only
+pandas 
+matplotlib 
+seaborn 
+scikit-learn 
+kaggle 
+opencv-python-headless
+
+# Utilities
+python-multipart>=0.0.9  # Required for FastAPI file uploads
+aiofiles>=23.2.1         # Async static file serving
