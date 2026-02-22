@@ -120,3 +120,31 @@ class HealthResponse(BaseModel):
     model_path: str
     supported_classes: int
     version: str
+
+# ── Chatbot ───────────────────────────────────────────────────────────────────
+
+class ChatMessage(BaseModel):
+    role: str                        # "user" | "assistant"
+    content: str
+    timestamp: Optional[str] = None
+
+
+class ChatRequest(BaseModel):
+    message: str = Field(..., min_length=1, max_length=2000, description="User message")
+    model: Optional[str] = Field(
+        default="llama3-8b-8192",
+        description="Groq model ID. Options: llama3-8b-8192, llama3-70b-8192, mixtral-8x7b-32768"
+    )
+
+
+class ChatResponse(BaseModel):
+    success: bool
+    message: str
+    model: str
+    tokens_used: Optional[int] = None
+
+
+class ChatHistoryResponse(BaseModel):
+    success: bool
+    count: int
+    data: list[ChatMessage]
