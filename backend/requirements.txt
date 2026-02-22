@@ -26,3 +26,4 @@ opencv-python-headless
 # Utilities
 python-multipart>=0.0.9  # Required for FastAPI file uploads
 aiofiles>=23.2.1         # Async static file serving
+opencv-python==4.13.0.92
