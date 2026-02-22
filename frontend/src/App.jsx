@@ -494,16 +494,82 @@ function HomePage() {
 // SCAN PAGE
 // ============================================================
 function ScanPage() {
-  const { t, lang, setPage, setScanResult, addHistory, isOnline } = useContext(AppContext);
+  const { t, lang, setPage, setScanResult, addHistory } = useContext(AppContext);
   const [image, setImage] = useState(null);
   const [imageFile, setImageFile] = useState(null);
   const [symptomText, setSymptomText] = useState("");
   const [loading, setLoading] = useState(false);
   const [dragging, setDragging] = useState(false);
+
+  // ── Webcam state ─────────────────────────────────────────
+  const [showCamera, setShowCamera] = useState(false);
+  const [camError, setCamError] = useState("");
+  const videoRef = useRef(null);
+  const streamRef = useRef(null);
+
   const { isListening, startListening, speak } = useSpeech(lang);
   const fileRef = useRef();
-  const cameraRef = useRef();
 
+  // ── Start webcam ─────────────────────────────────────────
+  const startCamera = async () => {
+    setCamError("");
+    setShowCamera(true);
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: "environment", width: { ideal: 1280 }, height: { ideal: 720 } },
+        audio: false,
+      });
+      streamRef.current = stream;
+      // Wait for the video element to mount, then attach stream
+      setTimeout(() => {
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream;
+          videoRef.current.play();
+        }
+      }, 100);
+    } catch (err) {
+      console.error("Camera error:", err);
+      if (err.name === "NotAllowedError") {
+        setCamError("Camera permission denied. Please allow camera access in your browser settings.");
+      } else if (err.name === "NotFoundError") {
+        setCamError("No camera found on this device.");
+      } else {
+        setCamError(`Camera error: ${err.message}`);
+      }
+    }
+  };
+
+  // ── Stop webcam ──────────────────────────────────────────
+  const stopCamera = () => {
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((t) => t.stop());
+      streamRef.current = null;
+    }
+    setShowCamera(false);
+    setCamError("");
+  };
+
+  // ── Capture frame from video ─────────────────────────────
+  const capturePhoto = () => {
+    if (!videoRef.current) return;
+    const video = videoRef.current;
+    const canvas = document.createElement("canvas");
+    canvas.width  = video.videoWidth  || 640;
+    canvas.height = video.videoHeight || 480;
+    canvas.getContext("2d").drawImage(video, 0, 0, canvas.width, canvas.height);
+    const dataUrl = canvas.toDataURL("image/jpeg", 0.92);
+    setImage(dataUrl);
+
+    // Convert dataURL → File for backend upload
+    canvas.toBlob((blob) => {
+      const file = new File([blob], "capture.jpg", { type: "image/jpeg" });
+      setImageFile(file);
+    }, "image/jpeg", 0.92);
+
+    stopCamera();
+  };
+
+  // ── File upload handler ──────────────────────────────────
   const handleFile = (file) => {
     if (!file || !file.type.startsWith("image/")) return;
     setImageFile(file);
@@ -513,19 +579,23 @@ function ScanPage() {
   };
 
   const handleDrop = (e) => {
-    e.preventDefault(); setDragging(false);
+    e.preventDefault();
+    setDragging(false);
     handleFile(e.dataTransfer.files[0]);
   };
 
+  // ── Analyze ──────────────────────────────────────────────
   const handleAnalyze = async () => {
     if (!image && !symptomText) return;
     setLoading(true);
     try {
-      // In production, call: const res = await axios.post('/api/scan', formData);
-      // Demo fallback:
-      await new Promise(r => setTimeout(r, 2500));
+      await new Promise((r) => setTimeout(r, 2500));
       setScanResult(DEMO_RESULT);
-      addHistory(DEMO_RESULT, image || "data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTAwIiBoZWlnaHQ9IjEwMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMTAwIiBoZWlnaHQ9IjEwMCIgZmlsbD0iIzJkNmEzZiIvPjwvc3ZnPg==");
+      addHistory(
+        DEMO_RESULT,
+        image ||
+          "data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTAwIiBoZWlnaHQ9IjEwMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMTAwIiBoZWlnaHQ9IjEwMCIgZmlsbD0iIzJkNmEzZiIvPjwvc3ZnPg=="
+      );
       setPage("results");
     } catch (err) {
       console.error(err);
@@ -541,24 +611,148 @@ function ScanPage() {
     });
   };
 
+  // ── Render ───────────────────────────────────────────────
   return (
     <PageWrap>
       <div className="max-w-2xl mx-auto px-4 py-8">
-        <motion.h2 className="text-3xl font-black text-white mb-2" initial={{ x: -20, opacity: 0 }} animate={{ x: 0, opacity: 1 }}>
+        <motion.h2
+          className="text-3xl font-black text-white mb-2"
+          initial={{ x: -20, opacity: 0 }}
+          animate={{ x: 0, opacity: 1 }}
+        >
           {t.uploadLeaf}
         </motion.h2>
         <p className="text-gray-400 mb-8">{t.orDrag}</p>
 
-        {/* Upload Zone */}
-        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}
+        {/* ── Webcam Modal ───────────────────────────────── */}
+        {showCamera && (
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="fixed inset-0 z-50 flex flex-col items-center justify-center"
+            style={{ background: "rgba(0,0,0,0.92)", backdropFilter: "blur(12px)" }}
+          >
+            <div
+              className="relative w-full max-w-lg rounded-3xl overflow-hidden"
+              style={{ border: "1.5px solid rgba(52,211,153,0.3)", boxShadow: "0 24px 80px rgba(0,0,0,0.7)" }}
+            >
+              {/* Header */}
+              <div
+                className="flex items-center justify-between px-5 py-4"
+                style={{ background: "rgba(15,45,26,0.95)", borderBottom: "1px solid rgba(52,211,153,0.15)" }}
+              >
+                <span className="text-white font-black text-lg flex items-center gap-2">
+                  <Icon.Camera className="w-5 h-5 text-emerald-400" /> Live Camera
+                </span>
+                <button
+                  onClick={stopCamera}
+                  className="text-gray-400 hover:text-white transition-colors text-2xl leading-none"
+                >
+                  ✕
+                </button>
+              </div>
+
+              {/* Video feed or error */}
+              <div
+                className="relative flex items-center justify-center"
+                style={{ background: "#000", minHeight: 320 }}
+              >
+                {camError ? (
+                  <div className="text-center p-8">
+                    <p className="text-red-400 font-semibold mb-2">⚠️ {camError}</p>
+                    <p className="text-gray-400 text-sm">
+                      Try uploading an image instead using the file picker below.
+                    </p>
+                  </div>
+                ) : (
+                  <>
+                    <video
+                      ref={videoRef}
+                      autoPlay
+                      playsInline
+                      muted
+                      className="w-full rounded-b-none"
+                      style={{ maxHeight: 400, objectFit: "cover" }}
+                    />
+                    {/* Green crosshair overlay */}
+                    <div
+                      className="absolute inset-0 pointer-events-none flex items-center justify-center"
+                    >
+                      <div
+                        style={{
+                          width: 200, height: 200,
+                          border: "2px solid rgba(52,211,153,0.7)",
+                          borderRadius: 16,
+                          boxShadow: "0 0 0 9999px rgba(0,0,0,0.35)",
+                        }}
+                      />
+                    </div>
+                    <p
+                      className="absolute bottom-3 left-0 right-0 text-center text-xs font-semibold"
+                      style={{ color: "rgba(187,247,208,0.8)" }}
+                    >
+                      Position leaf inside the frame
+                    </p>
+                  </>
+                )}
+              </div>
+
+              {/* Capture button */}
+              {!camError && (
+                <div
+                  className="flex gap-3 px-5 py-4"
+                  style={{ background: "rgba(15,45,26,0.95)" }}
+                >
+                  <button
+                    onClick={stopCamera}
+                    className="flex-1 rounded-2xl py-3 font-bold text-gray-300 hover:text-white transition-all"
+                    style={{ background: "rgba(255,255,255,0.07)", border: "1px solid rgba(255,255,255,0.12)" }}
+                  >
+                    Cancel
+                  </button>
+                  <motion.button
+                    onClick={capturePhoto}
+                    whileHover={{ scale: 1.04 }}
+                    whileTap={{ scale: 0.96 }}
+                    className="flex-1 rounded-2xl py-3 font-black text-white flex items-center justify-center gap-2"
+                    style={{ background: "linear-gradient(135deg,#22c55e,#16a34a)", boxShadow: "0 4px 20px rgba(34,197,94,0.45)" }}
+                  >
+                    <Icon.Camera className="w-5 h-5" /> Capture
+                  </motion.button>
+                </div>
+              )}
+            </div>
+          </motion.div>
+        )}
+
+        {/* ── Upload Zone ────────────────────────────────── */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.1 }}
           onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
           onDragLeave={() => setDragging(false)}
           onDrop={handleDrop}
-          className={`relative rounded-3xl border-2 border-dashed transition-all duration-300 ${dragging ? "border-emerald-400 bg-emerald-500/10" : "border-white/20 glass"} min-h-[220px] flex flex-col items-center justify-center gap-4 p-6 cursor-pointer overflow-hidden`}
-          onClick={() => fileRef.current?.click()}>
-          <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={e => handleFile(e.target.files[0])} />
+          className={`relative rounded-3xl border-2 border-dashed transition-all duration-300 ${
+            dragging ? "border-emerald-400 bg-emerald-500/10" : "border-white/20 glass"
+          } min-h-[220px] flex flex-col items-center justify-center gap-4 p-6 cursor-pointer overflow-hidden`}
+          onClick={() => fileRef.current?.click()}
+        >
+          <input
+            ref={fileRef}
+            type="file"
+            accept="image/*"
+            className="hidden"
+            onChange={(e) => handleFile(e.target.files[0])}
+          />
           {image ? (
-            <motion.img src={image} alt="leaf" className="max-h-48 rounded-2xl object-contain shadow-xl" initial={{ scale: 0.8 }} animate={{ scale: 1 }} />
+            <motion.img
+              src={image}
+              alt="leaf"
+              className="max-h-48 rounded-2xl object-contain shadow-xl"
+              initial={{ scale: 0.8 }}
+              animate={{ scale: 1 }}
+            />
           ) : (
             <>
               <div className="w-16 h-16 rounded-2xl glass-green flex items-center justify-center">
@@ -570,42 +764,78 @@ function ScanPage() {
           )}
         </motion.div>
 
-        {/* Camera Btn */}
-        <motion.div className="mt-4 flex gap-3" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.2 }}>
-          <button className="flex-1 glass rounded-2xl py-3 text-white font-semibold flex items-center justify-center gap-2 hover:bg-white/10 transition-all"
-            onClick={() => { fileRef.current.setAttribute("capture", "environment"); fileRef.current.click(); }}>
+        {/* ── Camera Button ──────────────────────────────── */}
+        <motion.div
+          className="mt-4 flex gap-3"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ delay: 0.2 }}
+        >
+          <button
+            className="flex-1 glass rounded-2xl py-3 text-white font-semibold flex items-center justify-center gap-2 hover:bg-white/10 transition-all"
+            onClick={startCamera}   // ← now calls getUserMedia instead of file input
+          >
             <Icon.Camera className="w-5 h-5 text-emerald-400" /> {t.capturePhoto}
           </button>
         </motion.div>
 
-        {/* Voice Input */}
+        {/* ── Voice Input ────────────────────────────────── */}
         <motion.div className="mt-6" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.3 }}>
           <label className="text-gray-300 text-sm font-semibold mb-2 block">{t.voiceInput}</label>
           <div className="flex gap-3">
-            <input value={symptomText} onChange={e => setSymptomText(e.target.value)}
+            <input
+              value={symptomText}
+              onChange={(e) => setSymptomText(e.target.value)}
               placeholder={isListening ? t.listening : "Describe symptoms..."}
-              className="flex-1 glass rounded-xl px-4 py-3 text-white placeholder-gray-400 outline-none focus:border-emerald-400 border border-transparent transition-all" />
-            <motion.button onClick={handleVoice} whileHover={{ scale: 1.1 }} whileTap={{ scale: 0.9 }}
-              className={`w-12 h-12 rounded-xl flex items-center justify-center transition-all ${isListening ? "bg-red-500 animate-pulse" : "bg-emerald-500 hover:bg-emerald-400"}`}>
+              className="flex-1 glass rounded-xl px-4 py-3 text-white placeholder-gray-400 outline-none focus:border-emerald-400 border border-transparent transition-all"
+            />
+            <motion.button
+              onClick={handleVoice}
+              whileHover={{ scale: 1.1 }}
+              whileTap={{ scale: 0.9 }}
+              className={`w-12 h-12 rounded-xl flex items-center justify-center transition-all ${
+                isListening ? "bg-red-500 animate-pulse" : "bg-emerald-500 hover:bg-emerald-400"
+              }`}
+            >
               <Icon.Mic className="w-5 h-5 text-white" />
             </motion.button>
           </div>
           {isListening && (
-            <motion.p initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="text-emerald-400 text-sm mt-2 flex items-center gap-2">
-              <span className="w-2 h-2 bg-red-400 rounded-full animate-pulse inline-block" /> {t.listening}
+            <motion.p
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              className="text-emerald-400 text-sm mt-2 flex items-center gap-2"
+            >
+              <span className="w-2 h-2 bg-red-400 rounded-full animate-pulse inline-block" />
+              {t.listening}
             </motion.p>
           )}
         </motion.div>
 
-        {/* Analyze Btn */}
-        <motion.button onClick={handleAnalyze} disabled={loading || (!image && !symptomText)}
-          whileHover={!loading ? { scale: 1.02 } : {}} whileTap={!loading ? { scale: 0.98 } : {}}
+        {/* ── Analyze Button ─────────────────────────────── */}
+        <motion.button
+          onClick={handleAnalyze}
+          disabled={loading || (!image && !symptomText)}
+          whileHover={!loading ? { scale: 1.02 } : {}}
+          whileTap={!loading ? { scale: 0.98 } : {}}
           className="mt-8 w-full py-4 rounded-2xl bg-emerald-500 disabled:opacity-40 disabled:cursor-not-allowed text-white font-bold text-lg flex items-center justify-center gap-3 btn-glow"
-          initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.4 }}>
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ delay: 0.4 }}
+        >
           {loading ? (
-            <><motion.div className="w-6 h-6 border-2 border-white/30 border-t-white rounded-full" animate={{ rotate: 360 }} transition={{ duration: 1, repeat: Infinity, ease: "linear" }} /> {t.loading}</>
+            <>
+              <motion.div
+                className="w-6 h-6 border-2 border-white/30 border-t-white rounded-full"
+                animate={{ rotate: 360 }}
+                transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
+              />
+              {t.loading}
+            </>
           ) : (
-            <><Icon.Scan className="w-6 h-6" /> {t.analyzeBtn}</>
+            <>
+              <Icon.Scan className="w-6 h-6" /> {t.analyzeBtn}
+            </>
           )}
         </motion.button>
       </div>

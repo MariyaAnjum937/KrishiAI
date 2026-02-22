@@ -15,7 +15,8 @@ Pillow>=10.3.0
 # ML (install TensorFlow separately if GPU is needed)
 numpy>=1.26.0
 #tensorflow>=2.17.0        # or 
-tensorflow-cpu>=2.17.0 for CPU-only
+tensorflow-cpu>=2.17.0 
+#for CPU-only
 pandas 
 matplotlib 
 seaborn 

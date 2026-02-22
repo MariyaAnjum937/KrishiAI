@@ -96,7 +96,7 @@ function getOfflineFallback(message, language) {
 // ============================================================
 // API CALL
 // ============================================================
-const BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:3002";
+const BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
 
 export async function sendChatMessage({ message, language, mode = "text" }) {
     try {
@@ -110,7 +110,7 @@ export async function sendChatMessage({ message, language, mode = "text" }) {
         if (!res.ok) throw new Error("API error");
         const data = await res.json();
         return {
-            reply: data.reply,
+            reply: data.message || "Sorry, I didn't understand that.",
             redirect_to_scan: !!data.redirect_to_scan,
             offline: false,
         };
