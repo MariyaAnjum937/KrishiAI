@@ -508,6 +508,13 @@ function ScanPage() {
   const streamRef = useRef(null);
 
   const { isListening, startListening, speak } = useSpeech(lang);
+
+const handleVoice = () => {
+  startListening((transcript) => {
+    setSymptomText(transcript);
+    speak(`Got it. You said: ${transcript}`);
+  });
+};
   const fileRef = useRef();
 
   // ── Start webcam ─────────────────────────────────────────
@@ -589,27 +596,52 @@ function ScanPage() {
     if (!image && !symptomText) return;
     setLoading(true);
     try {
-      await new Promise((r) => setTimeout(r, 2500));
-      setScanResult(DEMO_RESULT);
-      addHistory(
-        DEMO_RESULT,
-        image ||
-          "data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTAwIiBoZWlnaHQ9IjEwMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMTAwIiBoZWlnaHQ9IjEwMCIgZmlsbD0iIzJkNmEzZiIvPjwvc3ZnPg=="
-      );
+      const formData = new FormData();
+      if (imageFile) {
+        formData.append("file", imageFile);
+      }
+
+      const BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
+      const res = await fetch(`${BASE_URL}/api/predict`, {
+        method: "POST",
+        body: formData,
+      });
+
+      if (!res.ok) throw new Error("Prediction failed");
+      const data = await res.json();
+
+      // Map backend response to the shape your ResultsPage expects
+      const result = {
+        diseaseName: data.data.condition,
+        severity: data.data.severity_risk.toLowerCase().includes("critical") ? "high"
+                : data.data.severity_risk.toLowerCase().includes("medium")   ? "medium"
+                : "low",
+        healthScore: data.data.is_healthy ? 92 : Math.round((1 - data.data.confidence) * 100),
+        treatment: {
+          fertilizer: data.data.fertilizer_note || "Follow soil test recommendations",
+          pesticide:  data.data.pesticides?.[0]?.name || data.data.organic?.[0] || "See treatment plan",
+          dosage:     data.data.pesticides?.[0]?.dosage || "As per label",
+          instructions: data.data.prevention?.join(". ") || "Follow standard crop care practices",
+        },
+        costPerAcre: 1850,
+        weatherRisk: data.data.severity_risk === "Critical" || data.data.severity_risk === "High",
+        shops: DEMO_RESULT.shops,  // keep demo shops for now
+      };
+
+      setScanResult(result);
+      addHistory(result, image);
       setPage("results");
+
     } catch (err) {
       console.error(err);
+      // Fallback to demo if backend is offline
+      setScanResult(DEMO_RESULT);
+      addHistory(DEMO_RESULT, image);
+      setPage("results");
     } finally {
       setLoading(false);
     }
-  };
-
-  const handleVoice = () => {
-    startListening((transcript) => {
-      setSymptomText(transcript);
-      speak(`Got it. You said: ${transcript}`);
-    });
-  };
+};
 
   // ── Render ───────────────────────────────────────────────
   return (
