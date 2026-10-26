@@ -179,14 +179,14 @@ export default function ChatBot({ onNavigate }) {
         if (detectedLang && detectedLang !== chatLang) {
             setChatLang(detectedLang);
         }
-    }, [detectedLang]);
+    }, [detectedLang, chatLang]);
 
     // Show greeting on first open
     useEffect(() => {
         if (open && messages.length === 0) {
             setMessages([{ id: Date.now(), role: "bot", text: GREETING[chatLang] || GREETING.en, lang: chatLang }]);
         }
-    }, [open]);
+    }, [open, messages.length, chatLang]);
 
     // Auto-scroll
     useEffect(() => {

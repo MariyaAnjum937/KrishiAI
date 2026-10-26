@@ -1,7 +1,9 @@
 
 import { useState, useEffect, useRef, useCallback, createContext, useContext } from "react";
-import { motion, AnimatePresence, useAnimation } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
 import ChatBot from "./components/ChatBot";
+
+const SPEECH_LANGUAGES = { en: "en-IN", te: "te-IN", hi: "hi-IN" };
 
 // ============================================================
 // CONTEXT
@@ -141,19 +143,36 @@ const DEMO_RESULT = {
   ]
 };
 
+const PARTICLE_BACKGROUNDS = [
+  "radial-gradient(circle,rgba(6,182,212,0.4),transparent)",
+  "radial-gradient(circle,rgba(52,211,153,0.3),transparent)",
+  "radial-gradient(circle,rgba(167,139,250,0.3),transparent)",
+];
+
+const HOME_PARTICLES = Array.from({ length: 20 }, (_, index) => ({
+  id: index,
+  width: (index * 37) % 80 + 8,
+  height: (index * 53) % 80 + 8,
+  left: `${(index * 29) % 100}%`,
+  top: `${(index * 47) % 100}%`,
+  background: PARTICLE_BACKGROUNDS[index % PARTICLE_BACKGROUNDS.length],
+  drift: (index * 13) % 40 + 20,
+  duration: (index * 7) % 6 + 4,
+  delay: (index * 11) % 4,
+}));
+
 // ============================================================
 // UTILITY HOOKS
 // ============================================================
 function useSpeech(lang) {
   const [isListening, setIsListening] = useState(false);
   const recognitionRef = useRef(null);
-  const langMap = { en: "en-IN", te: "te-IN", hi: "hi-IN" };
 
   const startListening = useCallback((onResult) => {
     if (!("webkitSpeechRecognition" in window) && !("SpeechRecognition" in window)) return;
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
     recognitionRef.current = new SR();
-    recognitionRef.current.lang = langMap[lang] || "en-IN";
+    recognitionRef.current.lang = SPEECH_LANGUAGES[lang] || "en-IN";
     recognitionRef.current.onresult = (e) => onResult(e.results[0][0].transcript);
     recognitionRef.current.onend = () => setIsListening(false);
     recognitionRef.current.start();
@@ -164,7 +183,7 @@ function useSpeech(lang) {
     if (!("speechSynthesis" in window)) return;
     window.speechSynthesis.cancel();
     const utt = new SpeechSynthesisUtterance(text);
-    utt.lang = langMap[lang] || "en-IN";
+    utt.lang = SPEECH_LANGUAGES[lang] || "en-IN";
     window.speechSynthesis.speak(utt);
   }, [lang]);
 
@@ -222,7 +241,11 @@ export default function App() {
     const entry = { id: Date.now(), result, imageUrl, date: new Date().toISOString(), lang };
     const updated = [entry, ...history].slice(0, 20);
     setHistory(updated);
-    try { localStorage.setItem("krishi_history", JSON.stringify(updated)); } catch { }
+    try {
+      localStorage.setItem("krishi_history", JSON.stringify(updated));
+    } catch (error) {
+      console.warn("Could not save scan history:", error);
+    }
   };
 
   const ctx = { lang, setLang, t, page, setPage, scanResult, setScanResult, history, addHistory, isOnline };
@@ -324,27 +347,26 @@ function PageWrap({ children }) {
 // ============================================================
 function HomePage() {
   const { t, setPage } = useContext(AppContext);
-  const particles = Array.from({ length: 20 }, (_, i) => i);
 
   return (
     <PageWrap>
-      <div className="relative flex flex-col overflow-hidden aurora" style={{ minHeight: "100dvh", height: "100dvh" }}>
+      <div className="relative flex flex-col overflow-hidden aurora" style={{ minHeight: "calc(100dvh - 5rem)" }}>
         {/* Animated BG particles */}
-        {particles.map(i => (
-          <motion.div key={i} className="absolute rounded-full pointer-events-none"
+        {HOME_PARTICLES.map((particle) => (
+          <motion.div key={particle.id} className="absolute rounded-full pointer-events-none"
             style={{
-              width: Math.random() * 80 + 8,
-              height: Math.random() * 80 + 8,
-              left: `${Math.random() * 100}%`,
-              top: `${Math.random() * 100}%`,
-              background: [`radial-gradient(circle,rgba(6,182,212,0.4),transparent)`, `radial-gradient(circle,rgba(52,211,153,0.3),transparent)`, `radial-gradient(circle,rgba(167,139,250,0.3),transparent)`][i % 3]
+              width: particle.width,
+              height: particle.height,
+              left: particle.left,
+              top: particle.top,
+              background: particle.background,
             }}
-            animate={{ y: [0, -(Math.random() * 40 + 20), 0], scale: [1, 1.3, 1], opacity: [0.04, 0.18, 0.04] }}
-            transition={{ duration: Math.random() * 6 + 4, repeat: Infinity, delay: Math.random() * 4 }} />
+            animate={{ y: [0, -particle.drift, 0], scale: [1, 1.3, 1], opacity: [0.04, 0.18, 0.04] }}
+            transition={{ duration: particle.duration, repeat: Infinity, delay: particle.delay }} />
         ))}
 
         {/* ===== FULL-SCREEN TWO-COLUMN HERO ===== */}
-        <div className="relative z-10 w-full flex-1 grid grid-cols-1 md:grid-cols-2" style={{ minHeight: 0, height: "100%" }}>
+        <div className="relative z-10 w-full flex-1 grid grid-cols-1 md:grid-cols-2">
 
           {/* LEFT — text + buttons */}
           <motion.div className="flex flex-col justify-center px-6 md:px-12 lg:px-16 py-12 md:py-20"
@@ -901,14 +923,6 @@ function ResultsPage() {
   const speakResult = () => {
     speak(`Disease detected: ${r.diseaseName}. Severity: ${r.severity}. Health score: ${r.healthScore} out of 100. Use ${r.treatment.pesticide} with dosage ${r.treatment.dosage}.`);
   };
-
-  const cards = [
-    { key: "disease", delay: 0 },
-    { key: "treatment", delay: 0.1 },
-    { key: "cost", delay: 0.2 },
-    { key: "weather", delay: 0.3 },
-    { key: "shops", delay: 0.4 },
-  ];
 
   return (
     <PageWrap>
