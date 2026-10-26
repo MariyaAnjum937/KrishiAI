@@ -13,8 +13,6 @@ from __future__ import annotations
 
 import io
 import logging
-import os
-import random
 from pathlib import Path
 from typing import Any
 
@@ -113,72 +111,44 @@ class KerasPredictor:
         }
 
 
-# ── Mock Predictor (development / demo) ──────────────────────────────────────
+# ── Unavailable Predictor ─────────────────────────────────────────────────────
 
-class MockPredictor:
-    """
-    Returns deterministic mock predictions when no trained model is available.
-    Cycles through a set of disease examples so the API is fully testable.
-    """
+class ModelUnavailableError(RuntimeError):
+    """Raised when a real prediction is requested without a loaded model."""
 
-    _DEMO_CLASSES = [
-        "Tomato___Late_blight",
-        "Corn_(maize)___Common_rust_",
-        "Apple___Apple_scab",
-        "Potato___Early_blight",
-        "Grape___Black_rot",
-        "Tomato___healthy",
-        "Tomato___Bacterial_spot",
-        "Orange___Haunglongbing_(Citrus_greening)",
-        "Corn_(maize)___Northern_Leaf_Blight",
-        "Pepper,_bell___Bacterial_spot",
-    ]
-    _counter = 0
+
+class UnavailablePredictor:
+    def __init__(self, reason: str):
+        self.reason = reason
 
     def predict(self, image_bytes: bytes) -> dict[str, Any]:
-        # Use image byte checksum as seed so same image → same result
-        seed = sum(image_bytes[:64]) % len(self._DEMO_CLASSES)
-        primary = self._DEMO_CLASSES[seed]
-        primary_conf = round(random.uniform(0.82, 0.97), 4)
-
-        remaining = [c for c in CLASS_NAMES if c != primary]
-        random.seed(seed)
-        random.shuffle(remaining)
-        others = remaining[:4]
-        other_confs = sorted(
-            [round(random.uniform(0.001, (1 - primary_conf) / 2), 4) for _ in others],
-            reverse=True,
-        )
-
-        top5 = [{"class": primary, "confidence": primary_conf}] + [
-            {"class": c, "confidence": conf} for c, conf in zip(others, other_confs)
-        ]
-
-        return {
-            "class_name": primary,
-            "confidence": primary_conf,
-            "top5": top5,
-        }
+        raise ModelUnavailableError(self.reason)
 
 
 # ── Factory ────────────────────────────────────────────────────────────────────
 
-def load_predictor(model_path: str) -> KerasPredictor | MockPredictor:
+def load_predictor(model_path: str) -> KerasPredictor | UnavailablePredictor:
     """
-    Try to load the real Keras model. Fall back to MockPredictor if:
-      - The model file does not exist, or
-      - TensorFlow is not installed.
+    Load the real Keras model, or return an unavailable predictor with a
+    clear reason instead of manufacturing disease predictions.
     """
     if not Path(model_path).exists():
-        logger.warning(
-            "Model file '%s' not found — starting in MOCK / DEMO mode. "
-            "Place your trained mobilenetv2_best.keras at that path to enable real inference.",
-            model_path,
+        reason = (
+            f"Trained disease model not found at '{model_path}'. "
+            "Set MODEL_PATH to the trained .keras model file and restart the backend."
         )
-        return MockPredictor()
+        logger.warning(
+            "%s",
+            reason,
+        )
+        return UnavailablePredictor(reason)
 
     try:
         return KerasPredictor(model_path)
     except Exception as exc:
-        logger.error("Failed to load Keras model: %s — falling back to mock predictor.", exc)
-        return MockPredictor()
+        reason = (
+            "The trained disease model could not be loaded. Install the backend "
+            "dependencies (including tensorflow-cpu) and restart the backend."
+        )
+        logger.exception("Failed to load Keras model from %s: %s", model_path, exc)
+        return UnavailablePredictor(reason)

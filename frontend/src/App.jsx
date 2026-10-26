@@ -124,24 +124,57 @@ const translations = {
   }
 };
 
-const DEMO_RESULT = {
-  diseaseName: "Leaf Blight (Alternaria Solani)",
-  severity: "medium",
-  healthScore: 54,
-  treatment: {
-    fertilizer: "NPK 19:19:19",
-    pesticide: "Mancozeb 75% WP",
-    dosage: "2.5g per litre of water",
-    instructions: "Spray evenly on both sides of leaves in the early morning or evening. Repeat after 10 days if symptoms persist. Avoid spraying during rain or intense sunlight."
-  },
-  costPerAcre: 1850,
-  weatherRisk: true,
-  shops: [
-    { name: "Raju Agro Center", distance: "1.2 km", phone: "9876543210", rating: 4.5 },
-    { name: "Krishnamurthy Seeds & Pesticides", distance: "2.8 km", phone: "9123456789", rating: 4.2 },
-    { name: "Farmers Friend Store", distance: "3.5 km", phone: "9988776655", rating: 4.7 },
-  ]
-};
+const DEMO_SHOPS = [
+  { name: "Raju Agro Center", distance: "1.2 km", phone: "9876543210", rating: 4.5 },
+  { name: "Krishnamurthy Seeds & Pesticides", distance: "2.8 km", phone: "9123456789", rating: 4.2 },
+  { name: "Farmers Friend Store", distance: "3.5 km", phone: "9988776655", rating: 4.7 },
+];
+
+function estimateTreatmentCostPerAcre(treatment) {
+  if (treatment.is_healthy) return 0;
+
+  const pesticide = treatment.pesticides?.[0];
+  if (!pesticide) return treatment.organic?.length ? 500 : 0;
+
+  const dosage = pesticide.dosage.match(/(\d+(?:\.\d+)?)\s*(g|kg|ml|l)\s*\/\s*(l|ha|acre)\b/i);
+  let quantity;
+  let unit;
+
+  if (!dosage) {
+    quantity = 1;
+    unit = "l";
+  } else {
+    const amount = Number(dosage[1]);
+    unit = dosage[2].toLowerCase();
+    const basis = dosage[3].toLowerCase();
+
+    if (basis === "l") {
+      quantity = amount * 200;
+      if (unit === "g") quantity /= 1000;
+      if (unit === "ml") {
+        quantity /= 1000;
+        unit = "l";
+      }
+    } else if (basis === "ha") {
+      quantity = amount / 2.471;
+      if (unit === "g") quantity /= 1000;
+      if (unit === "ml") {
+        quantity /= 1000;
+        unit = "l";
+      }
+    } else {
+      quantity = amount;
+      if (unit === "g") quantity /= 1000;
+      if (unit === "ml") {
+        quantity /= 1000;
+        unit = "l";
+      }
+    }
+  }
+
+  const productCost = quantity * (unit === "g" || unit === "kg" ? 600 : 800);
+  return Math.ceil((productCost + 300) / 50) * 50;
+}
 
 const PARTICLE_BACKGROUNDS = [
   "radial-gradient(circle,rgba(6,182,212,0.4),transparent)",
@@ -521,6 +554,7 @@ function ScanPage() {
   const [imageFile, setImageFile] = useState(null);
   const [symptomText, setSymptomText] = useState("");
   const [loading, setLoading] = useState(false);
+  const [analysisError, setAnalysisError] = useState("");
   const [dragging, setDragging] = useState(false);
 
   // ── Webcam state ─────────────────────────────────────────
@@ -600,7 +634,12 @@ const handleVoice = () => {
 
   // ── File upload handler ──────────────────────────────────
   const handleFile = (file) => {
-    if (!file || !file.type.startsWith("image/")) return;
+    if (!file) return;
+    if (!file.type.startsWith("image/")) {
+      setAnalysisError("Please choose an image file.");
+      return;
+    }
+    setAnalysisError("");
     setImageFile(file);
     const reader = new FileReader();
     reader.onload = (e) => setImage(e.target.result);
@@ -616,6 +655,7 @@ const handleVoice = () => {
   // ── Analyze ──────────────────────────────────────────────
   const handleAnalyze = async () => {
     if (!image && !symptomText) return;
+    setAnalysisError("");
     setLoading(true);
     try {
       const formData = new FormData();
@@ -629,8 +669,13 @@ const handleVoice = () => {
         body: formData,
       });
 
-      if (!res.ok) throw new Error("Prediction failed");
       const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.detail || data.message || `Prediction failed (${res.status}).`);
+      }
+      if (!data.success || !data.data) {
+        throw new Error(data.message || "The server returned no disease prediction.");
+      }
 
       // Map backend response to the shape your ResultsPage expects
       const result = {
@@ -645,9 +690,9 @@ const handleVoice = () => {
           dosage:     data.data.pesticides?.[0]?.dosage || "As per label",
           instructions: data.data.prevention?.join(". ") || "Follow standard crop care practices",
         },
-        costPerAcre: 1850,
+        costPerAcre: estimateTreatmentCostPerAcre(data.data),
         weatherRisk: data.data.severity_risk === "Critical" || data.data.severity_risk === "High",
-        shops: DEMO_RESULT.shops,  // keep demo shops for now
+        shops: DEMO_SHOPS,
       };
 
       setScanResult(result);
@@ -656,10 +701,11 @@ const handleVoice = () => {
 
     } catch (err) {
       console.error(err);
-      // Fallback to demo if backend is offline
-      setScanResult(DEMO_RESULT);
-      addHistory(DEMO_RESULT, image);
-      setPage("results");
+      setAnalysisError(
+        err instanceof Error
+          ? `${err.message} Start the backend with its trained model to analyze leaf images.`
+          : "Disease analysis failed. Start the backend with its trained model and try again."
+      );
     } finally {
       setLoading(false);
     }
@@ -817,6 +863,12 @@ const handleVoice = () => {
             </>
           )}
         </motion.div>
+
+        {analysisError && (
+          <p role="alert" className="mt-4 rounded-xl border border-red-400/30 bg-red-500/10 p-4 text-sm text-red-200">
+            {analysisError}
+          </p>
+        )}
 
         {/* ── Camera Button ──────────────────────────────── */}
         <motion.div
@@ -1047,13 +1099,16 @@ function ResultsPage() {
           </h3>
           <div className="flex items-center gap-4 mb-4">
             <div>
-              <p className="text-yellow-200 text-sm font-semibold mb-1">{t.perAcre}</p>
+              <p className="text-yellow-200 text-sm font-semibold mb-1">Estimated cost per acre</p>
               <motion.p className="font-black text-yellow-400" style={{ fontSize: "clamp(2.2rem,6vw,3rem)", lineHeight: 1 }}
                 initial={{ scale: 0 }} animate={{ scale: 1 }} transition={{ delay: 0.4, type: "spring" }}>
                 ₹{r.costPerAcre.toLocaleString()}
               </motion.p>
             </div>
           </div>
+          <p className="text-gray-300 text-xs mb-4">
+            Indicative one-spray estimate using the recommended dosage, about 200 L water per acre, and generic input prices. Local prices vary.
+          </p>
           <div className="rounded-2xl p-4 mb-3" style={{ background: "rgba(0,0,0,0.25)" }}>
             <p className="text-yellow-300 text-xs font-bold mb-2">Quick Estimate</p>
             <div className="grid grid-cols-4 gap-2">

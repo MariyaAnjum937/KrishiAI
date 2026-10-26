@@ -21,6 +21,7 @@ from models.schemas import (
     PesticideInfo,
     ClassesResponse,
 )
+from services.predictor import ModelUnavailableError
 from services.treatment_db import get_treatment, get_all_classes
 
 logger = logging.getLogger(__name__)
@@ -78,9 +79,11 @@ async def predict(
     # ── Run model inference ───────────────────────────────────────────────────
     try:
         raw = predictor.predict(image_bytes)
+    except ModelUnavailableError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
     except Exception as exc:
         logger.exception("Inference error: %s", exc)
-        raise HTTPException(status_code=500, detail=f"Inference failed: {exc}")
+        raise HTTPException(status_code=500, detail="Disease inference failed. Check the backend logs.") from exc
 
     class_name: str = raw["class_name"]
     confidence: float = raw["confidence"]
